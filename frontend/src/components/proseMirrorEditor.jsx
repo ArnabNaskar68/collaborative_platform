@@ -1,100 +1,81 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { ySyncPlugin, yCursorPlugin, yUndoPlugin } from 'y-prosemirror';
 import { EditorState } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { schema as basicSchema } from 'prosemirror-schema-basic';
 import { history } from 'prosemirror-history';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
-import { useCollaboration } from '../context/CollaborationContext';
 import 'prosemirror-view/style/prosemirror.css';
 
-export default function ProseMirrorEditor() {
+export default function ProseMirrorEditor({ roomId = 'default-room', userName = 'Anonymous' }) {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
-  const isRemoteChangeRef = useRef(false);
-  const lastDocContentRef = useRef('');
-  const { docContent, updateDoc, setTyping, updateCursor } = useCollaboration();
+  const providerRef = useRef(null);
+  const ydocRef = useRef(null);
 
   useEffect(() => {
     if (!editorRef.current) return;
 
+    // Create Yjs doc and websocket provider
+    const ydoc = new Y.Doc();
+    ydocRef.current = ydoc;
+
+    // Connect to local y-websocket server. Adjust URL if needed.
+    const provider = new WebsocketProvider('ws://localhost:1234', roomId, ydoc);
+    providerRef.current = provider;
+
+    // Share an XML fragment for ProseMirror
+    const yXmlFragment = ydoc.get('prosemirror', Y.XmlFragment);
+
+    // Set presence / awareness (so yCursorPlugin can show cursors)
+    provider.awareness.setLocalStateField('user', {
+      name: userName,
+      color: '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'),
+    });
+
+    // Build editor state with Yjs plugins
     const state = EditorState.create({
       schema: basicSchema,
       plugins: [
+        ySyncPlugin(yXmlFragment),            // sync with Yjs
+        yCursorPlugin(provider.awareness),    // remote cursors
+        yUndoPlugin(),                        // undo/redo binding
         history(),
         keymap(baseKeymap),
+        keymap({ 'Mod-z': () => { /* will be handled by yUndoPlugin */ }, 'Mod-y': () => {} }),
       ],
     });
 
+    // Create EditorView
     viewRef.current = new EditorView(editorRef.current, {
       state,
       editable: () => true,
-      dispatchTransaction(transaction) {
-        const view = viewRef.current;
-        const newState = view.state.apply(transaction);
-        view.updateState(newState);
-
-        if (!isRemoteChangeRef.current) {
-          const content = newState.doc.textContent;
-          lastDocContentRef.current = content;
-          updateDoc(content);
-          setTyping(true);
-        }
-
-        isRemoteChangeRef.current = false;
-        updateCursor(newState.selection.from);
-      },
     });
 
+    // Focus so typing works
     viewRef.current.focus();
 
     return () => {
-      if (viewRef.current) {
-        viewRef.current.destroy();
-        viewRef.current = null;
-      }
-    };
-  }, []);
-
-  // Update editor when remote changes arrive
-  useEffect(() => {
-    if (!viewRef.current) return;
-
-    const currentContent = viewRef.current.state.doc.textContent;
-    
-    // Only update if content changed and it's not our own change
-    if (docContent !== currentContent && docContent !== lastDocContentRef.current) {
-      console.log('🔄 Syncing remote changes:', { currentLength: currentContent.length, newLength: docContent.length });
-      
-      isRemoteChangeRef.current = true;
-      lastDocContentRef.current = docContent;
-
+      // cleanup
       try {
-        const doc = basicSchema.topNodeType.createAndFill(
-          null,
-          basicSchema.text(docContent)
-        );
-        
-        const newState = EditorState.create({
-          schema: basicSchema,
-          doc,
-          plugins: [
-            history(),
-            keymap(baseKeymap),
-          ],
-        });
-        
-        viewRef.current.updateState(newState);
-        console.log('✓ Content synced');
-      } catch (error) {
-        console.error('Error syncing content:', error);
+        viewRef.current?.destroy();
+        provider.destroy();
+        ydoc.destroy();
+      } catch (e) {
+        console.warn('cleanup error', e);
       }
-    }
-  }, [docContent]);
+      viewRef.current = null;
+      providerRef.current = null;
+      ydocRef.current = null;
+    };
+  }, [roomId, userName]);
 
   return (
-    <div className="prosemirror-wrapper h-full w-full overflow-auto">
-      <div ref={editorRef} className="h-full w-full" />
+    <div className="prosemirror-wrapper h-full w-full overflow-auto bg-white">
+      <div ref={editorRef} className="h-full w-full p-4" />
     </div>
   );
 }
