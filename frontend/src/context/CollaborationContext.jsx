@@ -11,6 +11,7 @@ export function CollaborationProvider({ children, roomId, userName }) {
   const [version, setVersion] = useState(0);
   const socketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const debounceTimerRef = useRef(null);
 
   useEffect(() => {
     if (!roomId || !userName) return;
@@ -21,16 +22,25 @@ export function CollaborationProvider({ children, roomId, userName }) {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: 5,
+      transports: ['websocket', 'polling'],
     });
 
     socketRef.current.on('connect', () => {
-      console.log('Connected to collaboration server');
-      // Join the room
+      console.log('✓ Connected to collaboration server');
       socketRef.current.emit('join-room', { roomId, userName });
+    });
+
+    socketRef.current.on('disconnect', () => {
+      console.log('✗ Disconnected from server');
+    });
+
+    socketRef.current.on('error', (error) => {
+      console.error('Socket error:', error);
     });
 
     // Receive document updates
     socketRef.current.on('doc-update', (data) => {
+      console.log('📝 Doc update received:', { version: data.version, contentLength: data.content.length });
       setDocContent(data.content);
       setVersion(data.version);
       if (data.users) {
@@ -40,11 +50,13 @@ export function CollaborationProvider({ children, roomId, userName }) {
 
     // Receive user joined notification
     socketRef.current.on('user-joined', (data) => {
+      console.log('👥 User joined:', data.userName);
       setUsers(data.users);
     });
 
     // Receive user left notification
     socketRef.current.on('user-left', (data) => {
+      console.log('👋 User left:', data.userName);
       setUsers(data.users);
     });
 
@@ -83,23 +95,33 @@ export function CollaborationProvider({ children, roomId, userName }) {
     };
   }, [roomId, userName]);
 
-  // Emit document changes
+  // Emit document changes with debouncing
   const updateDoc = (content) => {
     setDocContent(content);
-    const newVersion = version + 1;
-    setVersion(newVersion);
-    if (socketRef.current) {
-      socketRef.current.emit('doc-change', {
-        roomId,
-        change: { content },
-        version: newVersion,
-      });
-    }
+    
+    // Clear existing timer
+    clearTimeout(debounceTimerRef.current);
+
+    // Debounce: wait 300ms before sending to avoid spam
+    debounceTimerRef.current = setTimeout(() => {
+      if (socketRef.current?.connected) {
+        console.log('📤 Sending doc update:', { contentLength: content.length });
+        socketRef.current.emit('doc-change', {
+          roomId,
+          change: { content },
+          version: version + 1, // Use current version directly
+        });
+        // Update version after sending
+        setVersion(prev => prev + 1);
+      } else {
+        console.warn('⚠️ Socket not connected, queuing update...');
+      }
+    }, 300);
   };
 
   // Emit cursor position
   const updateCursor = (position) => {
-    if (socketRef.current) {
+    if (socketRef.current?.connected) {
       socketRef.current.emit('cursor-move', {
         roomId,
         position,
@@ -109,13 +131,12 @@ export function CollaborationProvider({ children, roomId, userName }) {
 
   // Emit typing status
   const setTyping = (isTyping) => {
-    if (socketRef.current) {
+    if (socketRef.current?.connected) {
       socketRef.current.emit('user-typing', {
         roomId,
         isTyping,
       });
 
-      // Auto-stop typing after 2 seconds of inactivity
       clearTimeout(typingTimeoutRef.current);
       if (isTyping) {
         typingTimeoutRef.current = setTimeout(() => {

@@ -87,19 +87,18 @@ io.on('connection', (socket) => {
 
     if (!room) return;
 
-    // Simple text-based sync (apply change to room content)
-    // In production, use operational transformation or CRDT
+    // Update room content
     room.content = change.content;
     room.version = version;
 
-    // Broadcast change to all users in the room
+    console.log(`📝 Doc updated in room ${roomId}, version ${version}`);
+
+    // Broadcast change to ALL users in the room (including sender)
     io.to(roomId).emit('doc-update', {
       content: room.content,
       version: room.version,
       userId: socket.id,
     });
-
-    console.log(`Doc updated in room ${roomId}, version ${version}`);
   });
 
   // Handle cursor movements

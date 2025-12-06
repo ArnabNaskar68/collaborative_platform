@@ -12,6 +12,7 @@ export default function ProseMirrorEditor() {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const isRemoteChangeRef = useRef(false);
+  const lastDocContentRef = useRef('');
   const { docContent, updateDoc, setTyping, updateCursor } = useCollaboration();
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function ProseMirrorEditor() {
 
         if (!isRemoteChangeRef.current) {
           const content = newState.doc.textContent;
+          lastDocContentRef.current = content;
           updateDoc(content);
           setTyping(true);
         }
@@ -56,21 +58,37 @@ export default function ProseMirrorEditor() {
 
   // Update editor when remote changes arrive
   useEffect(() => {
-    if (viewRef.current && docContent !== viewRef.current.state.doc.textContent) {
+    if (!viewRef.current) return;
+
+    const currentContent = viewRef.current.state.doc.textContent;
+    
+    // Only update if content changed and it's not our own change
+    if (docContent !== currentContent && docContent !== lastDocContentRef.current) {
+      console.log('🔄 Syncing remote changes:', { currentLength: currentContent.length, newLength: docContent.length });
+      
       isRemoteChangeRef.current = true;
-      const doc = basicSchema.topNodeType.createAndFill(
-        null,
-        basicSchema.text(docContent)
-      );
-      const newState = EditorState.create({
-        schema: basicSchema,
-        doc,
-        plugins: [
-          history(),
-          keymap(baseKeymap),
-        ],
-      });
-      viewRef.current.updateState(newState);
+      lastDocContentRef.current = docContent;
+
+      try {
+        const doc = basicSchema.topNodeType.createAndFill(
+          null,
+          basicSchema.text(docContent)
+        );
+        
+        const newState = EditorState.create({
+          schema: basicSchema,
+          doc,
+          plugins: [
+            history(),
+            keymap(baseKeymap),
+          ],
+        });
+        
+        viewRef.current.updateState(newState);
+        console.log('✓ Content synced');
+      } catch (error) {
+        console.error('Error syncing content:', error);
+      }
     }
   }, [docContent]);
 
