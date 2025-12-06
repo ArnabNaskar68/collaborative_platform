@@ -1,84 +1,68 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
+import { CollaborationProvider } from '../context/CollaborationContext';
+import ProseMirrorEditor from './proseMirrorEditor';
+import { useCollaboration } from '../context/CollaborationContext';
 
-export default function Room() {
-  const location = useLocation();
-  const roomData = location.state || null;
+function RoomContent() {
+  const { users, typingUsers, cursors } = useCollaboration();
 
   return (
     <div className="flex h-screen">
-      {/* Left pane (like VS Code Explorer) ~ 25% width */}
+      {/* Sidebar - Active Users */}
       <aside className="w-1/4 min-w-[220px] bg-slate-900 text-slate-100 border-r border-slate-800 overflow-y-auto">
         <div className="p-4 border-b border-slate-800">
-          <h2 className="text-lg font-semibold">Explorer</h2>
+          <h2 className="text-lg font-semibold">Users ({users.length})</h2>
         </div>
 
         <nav className="p-4 space-y-2">
-          <div className="text-xs text-slate-400 uppercase mb-2">Workspace</div>
-
-          <ul className="space-y-1">
-            <li className="px-3 py-2 rounded-md hover:bg-slate-800 cursor-pointer">
-              <span className="font-medium">src</span>
-            </li>
-            <li className="px-3 py-2 rounded-md hover:bg-slate-800 cursor-pointer">
-              <span className="font-medium">components</span>
-            </li>
-            <li className="px-3 py-2 rounded-md hover:bg-slate-800 cursor-pointer">
-              <span className="font-medium">App.jsx</span>
-            </li>
-            <li className="px-3 py-2 rounded-md hover:bg-slate-800 cursor-pointer">
-              <span className="font-medium">Room.jsx</span>
-            </li>
-          </ul>
-
-          <div className="mt-6 text-xs text-slate-500">Open Editors</div>
-          <div className="mt-2 space-y-1">
-            <div className="px-3 py-2 rounded-md bg-slate-800">App.jsx</div>
-          </div>
+          {users.map((user) => (
+            <div key={user.id} className="p-3 bg-slate-800 rounded-lg">
+              <div className="font-medium text-sm">{user.name}</div>
+              <div className="text-xs text-green-400">● Online</div>
+              {typingUsers[user.id] && (
+                <div className="text-xs text-yellow-300 mt-1">typing...</div>
+              )}
+            </div>
+          ))}
         </nav>
       </aside>
 
-      {/* Right pane (editor) ~ 75% width */}
+      {/* Main Editor */}
       <main className="flex-1 bg-slate-50 overflow-auto">
-        <div className="h-full">
-          <header className="px-6 py-4 border-b border-slate-200 bg-white">
-            <div className="flex items-center justify-between">
-              <h1 className="text-lg font-semibold text-slate-700">Room</h1>
-              <div className="text-sm text-slate-500">Room ID: ABC123</div>
-            </div>
-          </header>
+        <header className="px-6 py-4 border-b border-slate-200 bg-white sticky top-0">
+          <h1 className="text-lg font-semibold text-slate-700">Collaborative Editor</h1>
+        </header>
 
-          <section className="p-6">
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 h-[70vh] overflow-auto">
-              <div className="p-4">
-                <pre className="whitespace-pre-wrap text-sm text-slate-800">
-{`// This is the editor area — like VS Code's editor
-// Replace this with your real editor (Monaco, CodeMirror, textarea, etc.)
-
-function hello() {
-  console.log("Hello from the Room editor");
-}`}
-                </pre>
-              </div>
-            </div>
-          </section>
-
-          <div className="max-w-4xl mx-auto bg-white rounded-lg shadow p-6">
-            <h1 className="text-2xl font-semibold mb-4">Room</h1>
-
-            {roomData ? (
-              <div className="space-y-2">
-                <div><strong>Name:</strong> {roomData.Name}</div>
-                <div><strong>Room ID:</strong> {roomData.RoomId}</div>
-              </div>
-            ) : (
-              <div className="text-sm text-gray-500">
-                No room data provided. You can navigate here directly or via the Home form.
-              </div>
-            )}
+        <section className="p-6 h-[calc(100%-72px)]">
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 h-full">
+            <ProseMirrorEditor />
           </div>
-        </div>
+        </section>
       </main>
     </div>
+  );
+}
+
+export default function Room() {
+  const location = useLocation();
+  const roomData = location.state || {};
+  const { RoomId, Name } = roomData;
+
+  if (!RoomId || !Name) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-red-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600">Error</h1>
+          <p className="text-gray-600 mt-2">Missing room data. Please join a room first.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <CollaborationProvider roomId={RoomId} userName={Name}>
+      <RoomContent />
+    </CollaborationProvider>
   );
 }
